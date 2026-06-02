@@ -78,6 +78,7 @@ const appReducer = (state: AppState, action: AppAction): AppState => {
 
 interface AppContextType extends AppState {
   addProduct: (product: Omit<Product, 'id' | 'createdAt'>) => void;
+  updateProduct: (product: Product) => void;
   deleteProduct: (id: string) => void;
   addSale: (sale: Omit<Sale, 'id' | 'date'>) => void;
   deleteSale: (id: string) => void;
@@ -168,46 +169,54 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     dispatch({ type: 'ADD_PRODUCT', payload: product });
   };
 
+  const updateProduct = (product: Product) => {
+    dispatch({ type: 'UPDATE_PRODUCT', payload: product });
+  };
+
   const deleteProduct = (id: string) => {
     dispatch({ type: 'DELETE_PRODUCT', payload: id });
   };
 
   const addSale = (saleData: Omit<Sale, 'id' | 'date'>) => {
-    const sale: Sale = {
-      ...saleData,
-      id: Date.now().toString(),
-      date: new Date(),
+  const sale: Sale = {
+    ...saleData,
+    id: Date.now().toString(),
+    date: new Date(),
+  };
+
+  // Update product quantity
+  const product = state.products.find(p => p.id === sale.productId);
+  if (product) {
+    const updatedProduct = {
+      ...product,
+      availableQuantity: (
+        (parseFloat(product.availableQuantity) || 0) - (sale.quantity || 0)
+      ).toString(),
     };
-    
-    // Update product quantity
+    dispatch({ type: 'UPDATE_PRODUCT', payload: updatedProduct });
+  }
+
+  dispatch({ type: 'ADD_SALE', payload: sale });
+};
+
+const deleteSale = (id: string) => {
+  // Find the sale to restore product quantity
+  const sale = state.sales.find(s => s.id === id);
+  if (sale) {
     const product = state.products.find(p => p.id === sale.productId);
     if (product) {
       const updatedProduct = {
         ...product,
-        availableQuantity: product.availableQuantity - sale.quantity,
+        availableQuantity: (
+          (parseFloat(product.availableQuantity) || 0) + (sale.quantity || 0)
+        ).toString(),
       };
       dispatch({ type: 'UPDATE_PRODUCT', payload: updatedProduct });
     }
-    
-    dispatch({ type: 'ADD_SALE', payload: sale });
-  };
+  }
 
-  const deleteSale = (id: string) => {
-    // Find the sale to restore product quantity
-    const sale = state.sales.find(s => s.id === id);
-    if (sale) {
-      const product = state.products.find(p => p.id === sale.productId);
-      if (product) {
-        const updatedProduct = {
-          ...product,
-          availableQuantity: product.availableQuantity + sale.quantity,
-        };
-        dispatch({ type: 'UPDATE_PRODUCT', payload: updatedProduct });
-      }
-    }
-    
-    dispatch({ type: 'DELETE_SALE', payload: id });
-  };
+  dispatch({ type: 'DELETE_SALE', payload: id });
+};
 
   const addNote = (noteData: Omit<Note, 'id' | 'createdAt' | 'updatedAt'>) => {
     const note: Note = {
@@ -241,6 +250,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       value={{
         ...state,
         addProduct,
+        updateProduct,
         deleteProduct,
         addSale,
         deleteSale,

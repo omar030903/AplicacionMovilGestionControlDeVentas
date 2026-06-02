@@ -23,9 +23,14 @@ const FILTER_OPTIONS = [
 ];
 
 const PERIOD_OPTIONS = [
+  { value: 'daily', label: 'Diario' },
   { value: 'weekly', label: 'Semanal' },
   { value: 'monthly', label: 'Mensual' },
+  { value: 'generally', label: 'General' },
 ];
+
+// ¡IMPORTANTE! Asegúrate que RegistryFilter tenga:
+// type RegistryFilter = { type: ..., period: 'daily' | 'weekly' | 'monthly' | 'generally' }
 
 export default function RegistryScreen() {
   const { products, sales } = useApp();
@@ -38,35 +43,47 @@ export default function RegistryScreen() {
   const productStats = useMemo(() => {
     const stats: ProductStats[] = products.map(product => {
       const productSales = sales.filter(sale => sale.productId === product.id);
-      
       // Filter by period
       const now = new Date();
       const filteredSales = productSales.filter(sale => {
         const saleDate = new Date(sale.date);
         const timeDiff = now.getTime() - saleDate.getTime();
         const daysDiff = Math.ceil(timeDiff / (1000 * 3600 * 24));
-        
-        if (currentFilter.period === 'weekly') {
+        if (currentFilter.period === 'daily') {
+          return (
+            saleDate.getDate() === now.getDate() &&
+            saleDate.getMonth() === now.getMonth() &&
+            saleDate.getFullYear() === now.getFullYear()
+          );
+        } else if (currentFilter.period === 'weekly') {
           return daysDiff <= 7;
-        } else {
+        } else if (currentFilter.period === 'monthly') {
           return daysDiff <= 30;
+        } else {
+          // 'generally'
+          return true;
         }
       });
 
       const totalSold = filteredSales.reduce((sum, sale) => sum + sale.quantity, 0);
       const totalRevenue = filteredSales.reduce((sum, sale) => sum + sale.totalPrice, 0);
-      const costPerUnit = product.investment / product.lotQuantity;
+      const lotQuantity = parseFloat(product.lotQuantity) || 0;
+      const investmentTotal = parseFloat(product.investment) || 0;
+      const costPerUnit = lotQuantity ? (investmentTotal / lotQuantity) : 0;
       const totalCost = totalSold * costPerUnit;
       const profit = totalRevenue - totalCost;
+      const remainingQuantity = parseFloat(product.availableQuantity) || 0;
 
       return {
         productId: product.id,
         productName: product.name,
         totalSold,
         totalRevenue,
-        remainingQuantity: product.availableQuantity,
+        remainingQuantity,
         profit,
         investment: totalCost,
+        lotQuantity,
+        investmentTotal,
       };
     });
 
@@ -97,6 +114,23 @@ export default function RegistryScreen() {
     );
   }, [productStats]);
 
+  // Dinero invertido en stock disponible
+  const investedInStock = useMemo(() => {
+    return products.reduce((sum, product) => {
+      const available = parseFloat(product.availableQuantity) || 0;
+      const lot = parseFloat(product.lotQuantity) || 0;
+      const investment = parseFloat(product.investment) || 0;
+      if (lot === 0) return sum;
+      const costPerUnit = investment / lot;
+      return sum + available * costPerUnit;
+    }, 0);
+  }, [products]);
+
+  // Total productos en stock
+  const totalStock = useMemo(() => {
+    return products.reduce((sum, product) => sum + (parseFloat(product.availableQuantity) || 0), 0);
+  }, [products]);
+
   const formatCurrency = (amount: number) => {
     return `$${amount.toFixed(2)}`;
   };
@@ -109,9 +143,7 @@ export default function RegistryScreen() {
 
   const getInvestmentQuality = (profit: number, investment: number) => {
     if (investment === 0) return { ratio: 0, quality: 'unknown', color: '#64748b', icon: AlertTriangle };
-    
     const ratio = profit / investment;
-    
     if (ratio >= 0.5) {
       return { ratio, quality: 'excellent', color: '#059669', icon: Star };
     } else if (ratio >= 0.25) {
@@ -143,6 +175,11 @@ export default function RegistryScreen() {
     return option ? option.label : type;
   };
 
+  const getPeriodLabel = (period: string) => {
+    const option = PERIOD_OPTIONS.find(opt => opt.value === period);
+    return option ? option.label : period;
+  };
+
   return (
     <View style={styles.container}>
       <LinearGradient
@@ -153,7 +190,7 @@ export default function RegistryScreen() {
           <View>
             <Text style={styles.headerTitle}>Registro</Text>
             <Text style={styles.headerSubtitle}>
-              Análisis {currentFilter.period === 'weekly' ? 'semanal' : 'mensual'}
+              Análisis {getPeriodLabel(currentFilter.period)}
             </Text>
           </View>
           <TouchableOpacity
@@ -188,10 +225,23 @@ export default function RegistryScreen() {
             <Text style={styles.summaryLabel}>Vendidos</Text>
           </View>
 
+          {/* NUEVO CUADRO: Productos en stock */}
+          <View style={styles.summaryCard}>
+            <Package color="#22c55e" size={24} />
+            <Text style={styles.summaryValue}>{totalStock}</Text>
+            <Text style={styles.summaryLabel}>En stock</Text>
+          </View>
+
           <View style={styles.summaryCard}>
             <BarChart3 color="#f59e0b" size={24} />
             <Text style={styles.summaryValue}>{formatCurrency(totalStats.totalInvestment)}</Text>
             <Text style={styles.summaryLabel}>Inversión</Text>
+          </View>
+
+          <View style={styles.summaryCard}>
+            <Package color="#f59e0b" size={24} />
+            <Text style={styles.summaryValue}>{formatCurrency(investedInStock)}</Text>
+            <Text style={styles.summaryLabel}>Invertido en stock</Text>
           </View>
         </View>
 
@@ -203,7 +253,7 @@ export default function RegistryScreen() {
               size: 20,
             })}
             <Text style={styles.currentFilterText}>
-              {getFilterLabel(currentFilter.type)} - {currentFilter.period === 'weekly' ? 'Semanal' : 'Mensual'}
+              {getFilterLabel(currentFilter.type)} - {getPeriodLabel(currentFilter.period)}
             </Text>
           </View>
         </View>
@@ -304,7 +354,7 @@ export default function RegistryScreen() {
                             styles.progressFill, 
                             { 
                               width: `${Math.max(
-                                (stat.remainingQuantity / (stat.remainingQuantity + stat.totalSold)) * 100, 
+                                (stat.remainingQuantity / (stat.remainingQuantity + stat.totalSold || 1)) * 100, 
                                 5
                               )}%` 
                             }

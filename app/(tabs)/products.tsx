@@ -11,7 +11,7 @@ import {
   Dimensions,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Package, Plus, DollarSign, Scale, Truck, Trash2, CreditCard as Edit3 } from 'lucide-react-native';
+import { Package, Plus, DollarSign, Scale, Truck, Trash2, Pencil } from 'lucide-react-native';
 import { useApp } from '@/contexts/AppContext';
 
 const { width } = Dimensions.get('window');
@@ -24,10 +24,19 @@ const UNITS = [
 ];
 
 export default function ProductsScreen() {
-  const { products, addProduct, deleteProduct } = useApp();
+  const { products, addProduct, deleteProduct, updateProduct } = useApp();
   const [modalVisible, setModalVisible] = useState(false);
   const [unitModalVisible, setUnitModalVisible] = useState(false);
-  
+
+  // Filtro de productos
+  const [filter, setFilter] = useState<'disponibles' | 'agotados' | 'todos'>('disponibles');
+  const filteredProducts = products.filter(product => {
+    const available = parseFloat(product.availableQuantity) > 0;
+    if (filter === 'disponibles') return available;
+    if (filter === 'agotados') return !available;
+    return true;
+  });
+
   // Form state
   const [name, setName] = useState('');
   const [pricePerUnit, setPricePerUnit] = useState('');
@@ -35,6 +44,20 @@ export default function ProductsScreen() {
   const [standardQuantity, setStandardQuantity] = useState('');
   const [lotQuantity, setLotQuantity] = useState('');
   const [investment, setInvestment] = useState('');
+
+  // Add stock modal state
+  const [addStockModalVisible, setAddStockModalVisible] = useState(false);
+  const [selectedProduct, setSelectedProduct] = useState<any>(null);
+  const [additionalQuantity, setAdditionalQuantity] = useState('');
+  const [additionalInvestment, setAdditionalInvestment] = useState('');
+  const [useCustomInvestment, setUseCustomInvestment] = useState(false);
+
+  // Edit product modal state
+  const [editModalVisible, setEditModalVisible] = useState(false);
+  const [editProduct, setEditProduct] = useState<any>(null);
+  const [editName, setEditName] = useState('');
+  const [editPricePerUnit, setEditPricePerUnit] = useState('');
+  const [editCostPerUnit, setEditCostPerUnit] = useState('');
 
   const resetForm = () => {
     setName('');
@@ -51,9 +74,19 @@ export default function ProductsScreen() {
       return;
     }
 
-    const price = parseFloat(pricePerUnit);
-    const lot = parseFloat(lotQuantity);
-    const invest = parseFloat(investment);
+    if (
+      isNaN(parseFloat(pricePerUnit)) ||
+      isNaN(parseFloat(lotQuantity)) ||
+      isNaN(parseFloat(investment)) ||
+      (standardQuantity && isNaN(parseFloat(standardQuantity)))
+    ) {
+      Alert.alert('Error', 'Solo se permiten números en los campos de cantidad y precios');
+      return;
+    }
+
+    const price = parseFloat(pricePerUnit) || 0;
+    const lot = parseFloat(lotQuantity) || 0;
+    const invest = parseFloat(investment) || 0;
     const standard = standardQuantity ? parseFloat(standardQuantity) : undefined;
 
     if (price <= 0 || lot <= 0 || invest <= 0) {
@@ -61,18 +94,38 @@ export default function ProductsScreen() {
       return;
     }
 
-    addProduct({
-      name: name.trim(),
-      pricePerUnit: price,
-      unit,
-      standardQuantity: standard,
-      lotQuantity: lot,
-      investment: invest,
-    });
+    // Calcula el precio de inversión por unidad
+    const costPerUnit = (invest / lot).toString();
+
+    const existingProduct = products.find(
+      (p) => p.name.trim().toLowerCase() === name.trim().toLowerCase() && p.unit === unit
+    );
+    if (existingProduct) {
+      updateProduct({
+        ...existingProduct,
+        lotQuantity: (parseFloat(existingProduct.lotQuantity) + lot).toString(),
+        availableQuantity: (parseFloat(existingProduct.availableQuantity) + lot).toString(),
+        investment: (parseFloat(existingProduct.investment) + invest).toString(),
+        pricePerUnit: pricePerUnit,
+        costPerUnit: costPerUnit,
+      });
+      Alert.alert('Producto actualizado correctamente');
+    } else {
+      addProduct({
+        name: name.trim(),
+        pricePerUnit: pricePerUnit,
+        costPerUnit: costPerUnit,
+        unit: unit,
+        standardQuantity: standardQuantity,
+        lotQuantity: lotQuantity,
+        availableQuantity: lotQuantity,
+        investment: investment,
+      });
+      Alert.alert('Producto añadido correctamente');
+    }
 
     resetForm();
     setModalVisible(false);
-    Alert.alert('Éxito', 'Producto añadido correctamente');
   };
 
   const handleDeleteProduct = (productId: string, productName: string) => {
@@ -86,14 +139,103 @@ export default function ProductsScreen() {
           style: 'destructive',
           onPress: () => {
             deleteProduct(productId);
-            Alert.alert('Éxito', 'Producto eliminado correctamente');
+            Alert.alert('Producto eliminado correctamente');
           },
         },
       ]
     );
   };
 
+  const openAddStockModal = (product: any) => {
+    setSelectedProduct(product);
+    setAdditionalQuantity('');
+    setAdditionalInvestment('');
+    setUseCustomInvestment(false);
+    setAddStockModalVisible(true);
+  };
+
+  const handleAddStockToProduct = () => {
+    if (!additionalQuantity) {
+      Alert.alert('Error', 'Completa la cantidad');
+      return;
+    }
+    if (isNaN(parseFloat(additionalQuantity))) {
+      Alert.alert('Error', 'Solo se permiten números en la cantidad');
+      return;
+    }
+    const addQty = parseFloat(additionalQuantity) || 0;
+    if (isNaN(addQty) || addQty <= 0) {
+      Alert.alert('Error', 'Cantidad inválida');
+      return;
+    }
+
+    let addInv = 0;
+
+    if (useCustomInvestment) {
+      if (!additionalInvestment) {
+        Alert.alert('Error', 'Completa la inversión');
+        return;
+      }
+      if (isNaN(parseFloat(additionalInvestment))) {
+        Alert.alert('Error', 'Solo se permiten números en la inversión');
+        return;
+      }
+      addInv = parseFloat(additionalInvestment) || 0;
+      if (isNaN(addInv) || addInv <= 0) {
+        Alert.alert('Error', 'Inversión inválida');
+        return;
+      }
+    } else {
+      // Inversión automática: cantidad * precio de inversión por unidad
+      addInv = addQty * (parseFloat(selectedProduct.costPerUnit) || 0);
+    }
+
+    updateProduct({
+      ...selectedProduct,
+      lotQuantity: ((parseFloat(selectedProduct.lotQuantity) || 0) + addQty).toString(),
+      availableQuantity: ((parseFloat(selectedProduct.availableQuantity) || 0) + addQty).toString(),
+      investment: ((parseFloat(selectedProduct.investment) || 0) + addInv).toString(),
+      pricePerUnit: selectedProduct.pricePerUnit,
+      costPerUnit: selectedProduct.costPerUnit,
+    });
+    setAddStockModalVisible(false);
+    Alert.alert('Stock añadido correctamente');
+  };
+
+  // Edit product logic
+  const openEditProductModal = (product: any) => {
+    setEditProduct(product);
+    setEditName(product.name);
+    setEditPricePerUnit(product.pricePerUnit);
+    setEditCostPerUnit(product.costPerUnit);
+    setEditModalVisible(true);
+  };
+
+  const handleEditProduct = () => {
+    if (!editName || !editPricePerUnit || !editCostPerUnit) {
+      Alert.alert('Error', 'Completa todos los campos');
+      return;
+    }
+    if (
+      isNaN(parseFloat(editPricePerUnit)) ||
+      isNaN(parseFloat(editCostPerUnit))
+    ) {
+      Alert.alert('Error', 'Solo se permiten números en los precios');
+      return;
+    }
+
+    updateProduct({
+      ...editProduct,
+      name: editName.trim(),
+      pricePerUnit: editPricePerUnit,
+      costPerUnit: editCostPerUnit,
+    });
+    setEditModalVisible(false);
+    Alert.alert('Producto editado correctamente');
+  };
+
   const formatCurrency = (amount: number) => {
+    if (isNaN(amount)) return '$0.00';
     return `$${amount.toFixed(2)}`;
   };
 
@@ -114,18 +256,58 @@ export default function ProductsScreen() {
         </Text>
       </LinearGradient>
 
+      {/* Filtro de productos */}
+      <View style={styles.filterBar}>
+        <TouchableOpacity
+          style={[
+            styles.filterButton,
+            filter === 'disponibles' && styles.filterButtonActive
+          ]}
+          onPress={() => setFilter('disponibles')}
+        >
+          <Text style={[
+            styles.filterButtonText,
+            filter === 'disponibles' && styles.filterButtonTextActive
+          ]}>Disponibles</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[
+            styles.filterButton,
+            filter === 'agotados' && styles.filterButtonActive
+          ]}
+          onPress={() => setFilter('agotados')}
+        >
+          <Text style={[
+            styles.filterButtonText,
+            filter === 'agotados' && styles.filterButtonTextActive
+          ]}>Agotados</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[
+            styles.filterButton,
+            filter === 'todos' && styles.filterButtonActive
+          ]}
+          onPress={() => setFilter('todos')}
+        >
+          <Text style={[
+            styles.filterButtonText,
+            filter === 'todos' && styles.filterButtonTextActive
+          ]}>Todos</Text>
+        </TouchableOpacity>
+      </View>
+
       <ScrollView style={styles.content} contentContainerStyle={styles.contentContainer}>
-        {products.length === 0 ? (
+        {filteredProducts.length === 0 ? (
           <View style={styles.emptyState}>
             <Package color="#94a3b8" size={64} />
-            <Text style={styles.emptyTitle}>No hay productos registrados</Text>
+            <Text style={styles.emptyTitle}>No hay productos para mostrar</Text>
             <Text style={styles.emptyDescription}>
-              Comienza agregando tu primer producto
+              Cambia el filtro o agrega productos nuevos
             </Text>
           </View>
         ) : (
           <View style={styles.productGrid}>
-            {products.map((product) => (
+            {filteredProducts.map((product) => (
               <View key={product.id} style={styles.productCard}>
                 <View style={styles.productHeader}>
                   <View style={styles.productIcon}>
@@ -135,6 +317,18 @@ export default function ProductsScreen() {
                     <Text style={styles.productName}>{product.name}</Text>
                     <Text style={styles.productUnit}>por {product.unit}</Text>
                   </View>
+                  <TouchableOpacity
+                    style={styles.addButton}
+                    onPress={() => openAddStockModal(product)}
+                  >
+                    <Plus color="#22c55e" size={20} />
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.editButton}
+                    onPress={() => openEditProductModal(product)}
+                  >
+                    <Pencil color="#2563eb" size={20} />
+                  </TouchableOpacity>
                   <TouchableOpacity
                     style={styles.deleteButton}
                     onPress={() => handleDeleteProduct(product.id, product.name)}
@@ -146,18 +340,16 @@ export default function ProductsScreen() {
                 <View style={styles.productStats}>
                   <View style={styles.statItem}>
                     <DollarSign color="#059669" size={16} />
-                    <Text style={styles.statValue}>{formatCurrency(product.pricePerUnit)}</Text>
+                    <Text style={styles.statValue}>{formatCurrency(parseFloat(product.pricePerUnit) || 0)}</Text>
                   </View>
-                  
                   <View style={styles.statItem}>
                     <Scale color="#dc2626" size={16} />
-                    <Text style={styles.statValue}>{product.availableQuantity}</Text>
+                    <Text style={styles.statValue}>{parseFloat(product.availableQuantity) || 0}</Text>
                     <Text style={styles.statLabel}>disponible</Text>
                   </View>
-
                   <View style={styles.statItem}>
                     <Truck color="#7c3aed" size={16} />
-                    <Text style={styles.statValue}>{formatCurrency(product.investment)}</Text>
+                    <Text style={styles.statValue}>{formatCurrency(parseFloat(product.investment) || 0)}</Text>
                     <Text style={styles.statLabel}>inversión</Text>
                   </View>
                 </View>
@@ -172,15 +364,23 @@ export default function ProductsScreen() {
 
                 <View style={styles.progressBar}>
                   <View style={styles.progressBackground}>
-                    <View 
+                    <View
                       style={[
-                        styles.progressFill, 
-                        { width: `${Math.min((product.availableQuantity / product.lotQuantity) * 100, 100)}%` }
-                      ]} 
+                        styles.progressFill,
+                        {
+                          width: `${Math.min(
+                            ((parseFloat(product.availableQuantity) || 0) /
+                              (parseFloat(product.lotQuantity) || 1)) *
+                            100,
+                            100
+                          )
+                            }%`,
+                        },
+                      ]}
                     />
                   </View>
                   <Text style={styles.progressText}>
-                    {product.availableQuantity} / {product.lotQuantity}
+                    {(parseFloat(product.availableQuantity) || 0)} / {(parseFloat(product.lotQuantity) || 0)}
                   </Text>
                 </View>
               </View>
@@ -213,8 +413,6 @@ export default function ProductsScreen() {
           <View style={styles.modalContent}>
             <ScrollView showsVerticalScrollIndicator={false}>
               <Text style={styles.modalTitle}>Nuevo Producto</Text>
-
-              {/* Product Name */}
               <Text style={styles.fieldLabel}>Nombre del producto *</Text>
               <TextInput
                 style={styles.input}
@@ -223,19 +421,17 @@ export default function ProductsScreen() {
                 placeholder="Ej: Arroz, Aceite, etc."
                 placeholderTextColor="#94a3b8"
               />
-
-              {/* Price per Unit */}
-              <Text style={styles.fieldLabel}>Precio por unidad *</Text>
+              <Text style={styles.fieldLabel}>Precio de venta por unidad *</Text>
               <TextInput
                 style={styles.input}
                 value={pricePerUnit}
-                onChangeText={setPricePerUnit}
+                onChangeText={text => {
+                  if (/^\d*\.?\d*$/.test(text)) setPricePerUnit(text);
+                }}
                 placeholder="0.00"
                 keyboardType="decimal-pad"
                 placeholderTextColor="#94a3b8"
               />
-
-              {/* Unit Selection */}
               <Text style={styles.fieldLabel}>Unidad de medida *</Text>
               <TouchableOpacity
                 style={styles.unitSelector}
@@ -245,41 +441,39 @@ export default function ProductsScreen() {
                   {getUnitLabel(unit)}
                 </Text>
               </TouchableOpacity>
-
-              {/* Standard Quantity */}
               <Text style={styles.fieldLabel}>Cantidad estándar (opcional)</Text>
               <TextInput
                 style={styles.input}
                 value={standardQuantity}
-                onChangeText={setStandardQuantity}
+                onChangeText={text => {
+                  if (/^\d*\.?\d*$/.test(text)) setStandardQuantity(text);
+                }}
                 placeholder="Cantidad típica de venta"
                 keyboardType="decimal-pad"
                 placeholderTextColor="#94a3b8"
               />
-
-              {/* Lot Quantity */}
               <Text style={styles.fieldLabel}>Cantidad del lote *</Text>
               <TextInput
                 style={styles.input}
                 value={lotQuantity}
-                onChangeText={setLotQuantity}
+                onChangeText={text => {
+                  if (/^\d*\.?\d*$/.test(text)) setLotQuantity(text);
+                }}
                 placeholder="Cantidad total disponible"
                 keyboardType="decimal-pad"
                 placeholderTextColor="#94a3b8"
               />
-
-              {/* Investment */}
               <Text style={styles.fieldLabel}>Inversión *</Text>
               <TextInput
                 style={styles.input}
                 value={investment}
-                onChangeText={setInvestment}
+                onChangeText={text => {
+                  if (/^\d*\.?\d*$/.test(text)) setInvestment(text);
+                }}
                 placeholder="Costo total del lote"
                 keyboardType="decimal-pad"
                 placeholderTextColor="#94a3b8"
               />
-
-              {/* Buttons */}
               <View style={styles.modalButtons}>
                 <TouchableOpacity
                   style={styles.cancelButton}
@@ -307,6 +501,136 @@ export default function ProductsScreen() {
         </View>
       </Modal>
 
+      {/* Add Stock Modal */}
+      <Modal
+        animationType="slide"
+        transparent={true}
+        visible={addStockModalVisible}
+        onRequestClose={() => setAddStockModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Agregar Stock</Text>
+            <Text style={styles.fieldLabel}>Cantidad a adicionar *</Text>
+            <TextInput
+              style={styles.input}
+              value={additionalQuantity}
+              onChangeText={text => {
+                if (/^\d*\.?\d*$/.test(text)) setAdditionalQuantity(text);
+              }}
+              placeholder="Cantidad"
+              keyboardType="decimal-pad"
+              placeholderTextColor="#94a3b8"
+            />
+            <TouchableOpacity
+              style={{ marginVertical: 10 }}
+              onPress={() => setUseCustomInvestment(!useCustomInvestment)}
+            >
+              <Text style={{ color: '#2563eb' }}>
+                {useCustomInvestment ? 'Usar inversión automática' : '¿La inversión fue a un precio diferente?'}
+              </Text>
+            </TouchableOpacity>
+            {useCustomInvestment && (
+              <>
+                <Text style={styles.fieldLabel}>Inversión total para esta cantidad *</Text>
+                <TextInput
+                  style={styles.input}
+                  value={additionalInvestment}
+                  onChangeText={text => {
+                    if (/^\d*\.?\d*$/.test(text)) setAdditionalInvestment(text);
+                  }}
+                  placeholder="Inversión"
+                  keyboardType="decimal-pad"
+                  placeholderTextColor="#94a3b8"
+                />
+              </>
+            )}
+            <View style={styles.modalButtons}>
+              <TouchableOpacity
+                style={styles.cancelButton}
+                onPress={() => setAddStockModalVisible(false)}
+              >
+                <Text style={styles.cancelButtonText}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.confirmButton}
+                onPress={handleAddStockToProduct}
+              >
+                <LinearGradient
+                  colors={['#22c55e', '#16a34a']}
+                  style={styles.confirmButtonGradient}
+                >
+                  <Text style={styles.confirmButtonText}>Agregar</Text>
+                </LinearGradient>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Edit Product Modal */}
+      <Modal
+        animationType="slide"
+        transparent={true}
+        visible={editModalVisible}
+        onRequestClose={() => setEditModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Editar Producto</Text>
+            <Text style={styles.fieldLabel}>Nombre</Text>
+            <TextInput
+              style={styles.input}
+              value={editName}
+              onChangeText={setEditName}
+              placeholder="Nombre"
+              placeholderTextColor="#94a3b8"
+            />
+            <Text style={styles.fieldLabel}>Precio de venta por unidad</Text>
+            <TextInput
+              style={styles.input}
+              value={editPricePerUnit}
+              onChangeText={text => {
+                if (/^\d*\.?\d*$/.test(text)) setEditPricePerUnit(text);
+              }}
+              placeholder="Precio de venta"
+              keyboardType="decimal-pad"
+              placeholderTextColor="#94a3b8"
+            />
+            <Text style={styles.fieldLabel}>Precio de inversión por unidad</Text>
+            <TextInput
+              style={styles.input}
+              value={editCostPerUnit}
+              onChangeText={text => {
+                if (/^\d*\.?\d*$/.test(text)) setEditCostPerUnit(text);
+              }}
+              placeholder="Precio de inversión"
+              keyboardType="decimal-pad"
+              placeholderTextColor="#94a3b8"
+            />
+            <View style={styles.modalButtons}>
+              <TouchableOpacity
+                style={styles.cancelButton}
+                onPress={() => setEditModalVisible(false)}
+              >
+                <Text style={styles.cancelButtonText}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.confirmButton}
+                onPress={handleEditProduct}
+              >
+                <LinearGradient
+                  colors={['#2563eb', '#1d4ed8']}
+                  style={styles.confirmButtonGradient}
+                >
+                  <Text style={styles.confirmButtonText}>Guardar</Text>
+                </LinearGradient>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       {/* Unit Selection Modal */}
       <Modal
         animationType="fade"
@@ -317,7 +641,6 @@ export default function ProductsScreen() {
         <View style={styles.modalOverlay}>
           <View style={styles.unitModalContent}>
             <Text style={styles.modalTitle}>Seleccionar Unidad</Text>
-            
             {UNITS.map((unitOption) => (
               <TouchableOpacity
                 key={unitOption.value}
@@ -338,7 +661,6 @@ export default function ProductsScreen() {
                 </Text>
               </TouchableOpacity>
             ))}
-
             <TouchableOpacity
               style={styles.closeButton}
               onPress={() => setUnitModalVisible(false)}
@@ -353,6 +675,32 @@ export default function ProductsScreen() {
 }
 
 const styles = StyleSheet.create({
+
+  filterBar: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 12,
+    backgroundColor: '#f1f5f9',
+    gap: 8,
+  },
+  filterButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 16,
+    backgroundColor: '#e2e8f0',
+  },
+  filterButtonActive: {
+    backgroundColor: '#3b82f6',
+  },
+  filterButtonText: {
+    color: '#1e293b',
+    fontFamily: 'Inter-SemiBold',
+    fontSize: 15,
+  },
+  filterButtonTextActive: {
+    color: '#fff',
+  },
   container: {
     flex: 1,
     backgroundColor: '#f8fafc',
@@ -441,6 +789,24 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontFamily: 'Inter-Regular',
     color: '#64748b',
+  },
+  addButton: {
+    width: 40,
+    height: 40,
+    backgroundColor: '#dcfce7',
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 8,
+  },
+  editButton: {
+    width: 40,
+    height: 40,
+    backgroundColor: '#e0e7ff',
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 8,
   },
   deleteButton: {
     width: 40,

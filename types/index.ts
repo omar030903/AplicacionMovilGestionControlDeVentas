@@ -1,12 +1,13 @@
 export interface Product {
   id: string;
   name: string;
-  pricePerUnit: number;
-  unit: 'kg' | 'lb' | 'litros' | 'unidad';
-  standardQuantity?: number;
-  lotQuantity: number;
-  availableQuantity: number;
-  investment: number;
+  pricePerUnit: string; // o number, pero debe ser consistente
+  costPerUnit: string;  // <-- agrega este campo como string
+  unit: string;
+  standardQuantity?: string;
+  lotQuantity: string;
+  availableQuantity: string;
+  investment: string;
   createdAt: Date;
 }
 
@@ -31,7 +32,7 @@ export interface Note {
 
 export interface RegistryFilter {
   type: 'best-selling' | 'worst-selling' | 'most-profitable' | 'least-profitable';
-  period: 'weekly' | 'monthly';
+  period: 'daily' | 'weekly' | 'monthly' | 'generally';
 }
 
 export interface ProductStats {

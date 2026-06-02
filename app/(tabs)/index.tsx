@@ -38,21 +38,35 @@ export default function AccountsScreen() {
       return;
     }
 
+    const saleQuantity = parseFloat(quantity);
+
+    // Validar que la cantidad sea un número mayor a 0
+    if (isNaN(saleQuantity) || saleQuantity <= 0) {
+      Alert.alert('Error', 'La cantidad debe ser un número mayor a 0');
+      return;
+    }
+
+    // Validar que el precio especial (si se usa) sea un número (puede ser 0)
+    if (useSpecialPrice && (specialPrice === '' || isNaN(parseFloat(specialPrice)))) {
+      Alert.alert('Error', 'Solo se permiten números en el campo de precio especial');
+      return;
+    }
+
     const product = products.find(p => p.id === selectedProduct);
     if (!product) {
       Alert.alert('Error', 'Producto no encontrado');
       return;
     }
 
-    const saleQuantity = parseFloat(quantity);
-    if (saleQuantity > product.availableQuantity) {
+    const availableQuantity = parseFloat(product.availableQuantity) || 0;
+    if (saleQuantity > availableQuantity) {
       Alert.alert('Error', 'No hay suficiente cantidad disponible');
       return;
     }
 
-    const unitPrice = useSpecialPrice && specialPrice 
+    const unitPrice = useSpecialPrice && specialPrice !== '' 
       ? parseFloat(specialPrice) 
-      : product.pricePerUnit;
+      : parseFloat(product.pricePerUnit) || 0;
 
     const totalPrice = unitPrice * saleQuantity;
 
@@ -95,6 +109,7 @@ export default function AccountsScreen() {
   };
 
   const formatCurrency = (amount: number) => {
+    if (isNaN(amount)) return '$0.00';
     return `$${amount.toFixed(2)}`;
   };
 
@@ -109,14 +124,15 @@ export default function AccountsScreen() {
   };
 
   const renderSaleRow = ({ item, index }: { item: Sale; index: number }) => (
-    <View style={[styles.tableRow, index % 2 === 0 && styles.tableRowEven]}>
+    <View
+      style={[
+        styles.tableRow,
+        index % 2 === 0 ? styles.tableRowEven : undefined,
+        item.specialPrice !== undefined ? styles.specialRow : undefined
+      ]}
+    >
       <View style={styles.tableCell}>
         <Text style={styles.tableCellText} numberOfLines={2}>{item.productName}</Text>
-        {item.specialPrice && (
-          <View style={styles.specialPriceTag}>
-            <Text style={styles.specialPriceText}>Precio Especial</Text>
-          </View>
-        )}
       </View>
       <View style={styles.tableCell}>
         <Text style={styles.tableCellText}>{item.quantity}</Text>
@@ -245,7 +261,9 @@ export default function AccountsScreen() {
             <TextInput
               style={styles.input}
               value={quantity}
-              onChangeText={setQuantity}
+              onChangeText={text => {
+                if (/^\d*\.?\d*$/.test(text)) setQuantity(text);
+              }}
               placeholder="Ingrese la cantidad"
               keyboardType="numeric"
               placeholderTextColor="#94a3b8"
@@ -272,7 +290,9 @@ export default function AccountsScreen() {
                 <TextInput
                   style={styles.input}
                   value={specialPrice}
-                  onChangeText={setSpecialPrice}
+                  onChangeText={text => {
+                    if (/^\d*\.?\d*$/.test(text)) setSpecialPrice(text);
+                  }}
                   placeholder="Ingrese el precio especial"
                   keyboardType="numeric"
                   placeholderTextColor="#94a3b8"
@@ -338,7 +358,7 @@ export default function AccountsScreen() {
                 >
                   <Text style={styles.productItemName}>{item.name}</Text>
                   <Text style={styles.productItemDetails}>
-                    {formatCurrency(item.pricePerUnit)} - Disponible: {item.availableQuantity}
+                    {formatCurrency(parseFloat(item.pricePerUnit) || 0)} - Disponible: {parseFloat(item.availableQuantity) || 0}
                   </Text>
                 </TouchableOpacity>
               )}
@@ -695,5 +715,8 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter-SemiBold',
     color: '#64748b',
     textAlign: 'center',
+  },
+  specialRow: {
+    backgroundColor: '#fbbf24', // amarillo
   },
 });
